@@ -11,22 +11,28 @@ def main():
         image_path = sys.argv[1]
         print(f"[INFO] Image path received: {image_path}", file=sys.stderr)
 
-        # تحميل الصورة
+        # Load the image
         image = Image.open(image_path)
         print("[INFO] Image successfully loaded.", file=sys.stderr)
 
-        # تحميل النموذج
+        # Load the emotion classification model
         classifier = pipeline('image-classification', model='trpakov/vit-face-expression')
         print("[INFO] Model loaded successfully.", file=sys.stderr)
 
-        # تصنيف الصورة
-        result = classifier(image)[0]  # أعلى احتمال
+        # Run emotion classification
+        results = classifier(image)
+        print("[DEBUG] Full result list:", results, file=sys.stderr)
+
+        # Filter results above a confidence threshold
+        filtered = [res for res in results if res['score'] > 0.5]
+        result = filtered[0] if filtered else results[0]
+
+        # Extract emotion and score
         emotion = result['label'].upper()
         score = result['score']
-
         print(f"[INFO] Detected emotion: {emotion}, Score: {score}", file=sys.stderr)
 
-        # ربط العواطف بالمشاعر
+        # Map emotion to sentiment
         sentiment_map = {
             'HAPPY': 'POSITIVE',
             'SURPRISE': 'POSITIVE',
@@ -38,7 +44,7 @@ def main():
         }
         sentiment = sentiment_map.get(emotion, 'NEUTRAL')
 
-        # طباعة النتيجة
+        # Output the result as JSON
         print(json.dumps({
             'label': sentiment,
             'emotion': emotion,

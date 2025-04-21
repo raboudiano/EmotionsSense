@@ -1,70 +1,78 @@
 const express = require('express');
 const cors = require('cors');
-const { spawn } = require('child_process');
+const mysql = require('mysql2');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 
 const app = express();
+const port = 5000;
+
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
-// إعداد multer لتخزين الملفات المرفوعة في مجلد "uploads"
-const upload = multer({ dest: 'uploads/' });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
+});
 
-// إنشاء مجلد "uploads" إذا لم يكن موجودًا
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
-}
+const upload = multer({ storage });
+
+const db = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: '', // your MySQL password
+  database: 'emotion_db',
+  port: 3307
+});
+
+db.connect(err => {
+  if (err) throw err;
+  console.log('MySQL connected.');
+});
 
 app.post('/api/analyze', upload.single('image'), (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No image uploaded' });
+  const imagePath = path.join(__dirname, 'uploads', req.file.filename);
+  const imgUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+
+  const python = spawn('python', ['sentiment.py', imagePath]);
+
+  let data = '';
+  let errorData = '';
+
+  python.stdout.on('data', (chunk) => {
+    data += chunk.toString();
+  });
+
+  python.stderr.on('data', (chunk) => {
+    errorData += chunk.toString();
+  });
+
+  python.on('close', (code) => {
+    if (code !== 0) {
+      console.error('[PYTHON ERROR]', errorData);
+      return res.status(500).json({ error: 'Emotion analysis failed' });
     }
 
-    const imagePath = path.join(__dirname, req.file.path);
-    const scriptPath = path.join(__dirname, 'sentiment.py');
+    try {
+      const result = JSON.parse(data);
+      const { label, emotion, score } = result;
 
-    // تشغيل سكريبت Python مع مسار الصورة كوسيط
-    const pythonProcess = spawn(
-        'C:\\Users\\boub0\\AppData\\Local\\Programs\\Python\\Python310\\python.exe',
-        [scriptPath, imagePath]
-    );
-
-    let output = '';
-    let errorOutput = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-        output += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-        errorOutput += data.toString();
-        console.error(`Python stderr: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-        // حذف الصورة بعد المعالجة
-        fs.unlinkSync(imagePath);
-
-        if (code === 0) {
-            try {
-                console.log("Python output:", output);
-                res.json(JSON.parse(output));
-            } catch (error) {
-                console.error("JSON parse error:", error);
-                res.status(500).json({ error: 'Failed to parse sentiment analysis result' });
-            }
-        } else {
-            console.error("Python exited with code:", code);
-            res.status(500).json({
-                error: 'Image analysis failed',
-                details: errorOutput || 'No additional error output.'
-            });
+      db.query(
+        'INSERT INTO analysis_history (image_url, sentiment, emotion, confidence) VALUES (?, ?, ?, ?)',
+        [imgUrl, label, emotion, score],
+        (err) => {
+          if (err) return res.status(500).json({ error: 'Database error' });
+          res.json({ ...result, image_url: imgUrl });
         }
-    });
+      );
+    } catch (e) {
+      console.error('[PARSE ERROR]', e.message);
+      res.status(500).json({ error: 'Invalid response from sentiment.py' });
+    }
+  });
 });
 
-app.listen(5000, () => {
-    console.log('Server running at http://localhost:5000');
-});
+app.listen(port, () => console.log(`Server running on port ${port}`));
