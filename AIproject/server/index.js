@@ -23,7 +23,7 @@ const upload = multer({ storage });
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '', // your MySQL password
+  password: '',
   database: 'emotion_db',
   port: 3307
 });
