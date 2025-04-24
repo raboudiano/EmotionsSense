@@ -1,6 +1,9 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
+
 import './App.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
+
 
 function App() {
   const [image, setImage] = useState(null);
@@ -83,6 +86,23 @@ function App() {
     setHistory([]);
     localStorage.removeItem('sentimentHistory');
   };
+  useEffect(() => {
+    fetch('http://localhost:5000/api/history')
+      .then(res => res.json())
+      .then(data => {
+        const updated = data.map(item => ({
+          image: `http://localhost:5000/uploads/${item.image_filename}`,
+          result: {
+            label: item.sentiment,
+            emotion: item.emotion,
+            score: item.confidence
+          }
+        }));
+        setHistory(updated);
+      })
+      .catch(err => console.error('Error loading history:', err));
+  }, []);
+  
 
   return (
     <div className="bg-light text-dark min-vh-100 d-flex flex-column">
